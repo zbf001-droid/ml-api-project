@@ -1,79 +1,54 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import joblib
+import pickle
 
-st.set_page_config(page_title="Bucknell Lending Club App", layout="wide")
+# Open the file and load the model
+file_to_load = 'lend_logistic_model.pkl'
+with open(file_to_load, 'rb') as file:
+    loaded_model = pickle.load(file)
 
-log_model = joblib.load("loan_status_log_model.pkl")
-lin_model = joblib.load("ret_pess_lin_model.pkl")
-model_columns = joblib.load("model_columns.pkl")
+# --- Streamlit UI ---
+st.set_page_config(page_title="💰 Loan Default ML Predictor", layout="centered")
+st.title("💰 Loan Default Prediction")
+st.markdown("Enter a potential loan customer's details to predict their risk of default.")
 
-st.title("Bucknell Lending Club Loan Evaluation App")
-st.subheader("Predict Fully Paid Probability and Pessimistic Return")
+# User input
+ownhome = st.checkbox("Own Their Home?")
+income = st.slider("Family Income", 20000, 1000000, 80000)
+dti = st.slider("Debt-to-Income Ratio", 0, 40, 10)
+fico = st.slider("FICO Score", 300, 850, 650)
 
-loan_amnt = st.number_input("Loan Amount", min_value=1000, max_value=40000, value=10000, step=500)
-term_num = st.selectbox("Term (months)", [36, 60])
-int_rate = st.number_input("Interest Rate", min_value=5.0, max_value=31.0, value=12.0, step=0.1)
-grade = st.selectbox("Grade", ["A", "B", "C", "D", "E", "F", "G"])
-emp_length = st.selectbox(
-    "Employment Length",
-    ["Unknown", "< 1 year", "1 year", "2 years", "3 years", "4 years", "5 years",
-     "6 years", "7 years", "8 years", "9 years", "10+ years"]
-)
-home_ownership = st.selectbox("Home Ownership", ["MORTGAGE", "RENT", "OWN", "OTHER", "NONE", "ANY"])
-annual_inc = st.number_input("Annual Income", min_value=0.0, value=60000.0, step=1000.0)
-verification_status = st.selectbox("Verification Status", ["Verified", "Source Verified", "Not Verified"])
-purpose = st.selectbox(
-    "Purpose",
-    ["debt_consolidation", "credit_card", "home_improvement", "other", "major_purchase",
-     "medical", "small_business", "car", "vacation", "moving", "house", "wedding",
-     "renewable_energy", "educational"]
-)
-dti = st.number_input("DTI", min_value=0.0, value=15.0, step=0.1)
-delinq_2yrs = st.number_input("Delinquencies in Past 2 Years", min_value=0.0, value=0.0, step=1.0)
-open_acc = st.number_input("Open Accounts", min_value=0.0, value=10.0, step=1.0)
-pub_rec = st.number_input("Public Records", min_value=0.0, value=0.0, step=1.0)
-fico_range_high = st.number_input("FICO Range High", min_value=664, max_value=850, value=700, step=1)
-revol_bal = st.number_input("Revolving Balance", min_value=0.0, value=15000.0, step=500.0)
-revol_util = st.number_input("Revolving Utilization", min_value=0.0, max_value=152.0, value=50.0, step=1.0)
-credit_age_years = st.number_input("Credit Age (years)", min_value=0.0, value=20.0, step=1.0)
+# Prediction
+if st.button("Predict Loan Default"):
+    new_customer = pd.DataFrame({
+    'home_ownership': [ownhome],
+    'income': [income],
+    'dti': [dti],
+    'fico': [fico]
+    })
 
-if st.button("Predict"):
-    input_df = pd.DataFrame([{
-        "loan_amnt": loan_amnt,
-        "term_num": term_num,
-        "int_rate": int_rate,
-        "grade": grade,
-        "emp_length": emp_length,
-        "home_ownership": home_ownership,
-        "annual_inc": annual_inc,
-        "verification_status": verification_status,
-        "purpose": purpose,
-        "dti": dti,
-        "delinq_2yrs": delinq_2yrs,
-        "open_acc": open_acc,
-        "pub_rec": pub_rec,
-        "fico_range_high": fico_range_high,
-        "revol_bal": revol_bal,
-        "revol_util": revol_util,
-        "credit_age_years": credit_age_years
-    }])
-
-    input_dum = pd.get_dummies(input_df, drop_first=True)
-    input_dum = input_dum.reindex(columns=model_columns, fill_value=0)
-
-    fully_paid_prob = log_model.predict_proba(input_dum)[0][1]
-    pred_ret_pess = lin_model.predict(input_dum)[0]
-
-    if fully_paid_prob >= 0.85 and pred_ret_pess >= 2:
-        recommendation = "Recommend Funding"
-    elif fully_paid_prob >= 0.75 and pred_ret_pess >= 0:
-        recommendation = "Review Carefully"
+    # Use the model to find the predicted probability of default
+    predicted_prob = loaded_model.predict_proba(new_customer)[:, 0]
+    # Use the model to find the predicted class
+    predicted_class = loaded_model.predict(new_customer)
+    
+    # Format the predicted probability with two decimals and a leading zero
+    formatted_prob = f"{predicted_prob[0]:.2f}"
+    
+    # Display the predicted probability and class in Streamlit
+    st.write(f"Predicted Probability of Default: **{formatted_prob}**")
+    if predicted_class[0] == 0:
+        st.success("Predicted Class: **Default**")
     else:
-        recommendation = "Do Not Recommend Funding"
-
-    st.markdown("## Results")
-    st.write(f"**Probability Loan is Fully Paid:** {fully_paid_prob:.2%}")
-    st.write(f"**Predicted Pessimistic Return:** {pred_ret_pess:.2f}")
-    st.write(f"**Recommended Action:** {recommendation}")
+        st.success("Predicted Class: **Not Default**")
+    
+    # Show the default probability and not default as a pie chart
+    probabilities = [predicted_prob[0], 1 - predicted_prob[0]]
+    labels = ['Default', 'Not Default']
+    chart_data = pd.DataFrame({'Probability': probabilities}, index=labels)
+    st.write("Prediction Breakdown:")
+    # VERY simple chart
+    st.bar_chart(chart_data)
+    
+st.markdown("---")
+st.markdown("**Developed by Matt Bailey as simple ML Web App Demo** | Powered by Streamlit")
